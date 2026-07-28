@@ -26,8 +26,11 @@ placement match Hyprland.
 
 ## Current local implementation
 
-The worktree is a source-only fork of upstream Sway. The dwindle changes are
-currently local worktree changes, not a separate library or plugin.
+This is a source-only fork of upstream Sway at
+`https://github.com/jade-gay/sway.git`. The dwindle and dynamic-resize
+implementation is committed on `master` (introduced by `e9c2b703`); it is not
+a separate library or plugin. `origin` is the user's fork and `upstream` points
+to `https://github.com/swaywm/sway.git`.
 
 ### Tree model and insertion
 
@@ -74,8 +77,9 @@ currently local worktree changes, not a separate library or plugin.
 
 - `dynamic_resize <criteria> <width> <height>` is a custom config-time window
   rule implemented by this fork.
-- Rules are re-evaluated on title changes and when a view enters floating mode.
-  Only floating, visible, non-fullscreen views are resized.
+- Rules are re-evaluated by `view_update_dynamic_resize()` after title changes
+  and floating-state transitions. Only floating views attached to a workspace
+  that are not hidden in the scratchpad or fullscreen are eligible.
 - The first matching rule wins. On the first dynamic match, the container saves
   its prior floating size. If no rule later matches, that saved size is restored.
   Direct transitions between matching rules retain the same saved base size.
@@ -84,13 +88,11 @@ currently local worktree changes, not a separate library or plugin.
 - Rule state is owned by `struct sway_container`; criteria dimensions are owned
   by `struct criteria`. Pure state transitions live in
   `include/sway/tree/dynamic_resize.h`.
-- The active config mirrors the old Hyprland Lua sizing scripts:
-  - Ghostty `btop`: `810x700`
-  - Ghostty `nv` or `vim`: `1220x730`
-  - other Ghostty titles: `700x460`
-  - Helium: `1200x800`
-  - Nautilus: `975x615`
-  - Discord: `1200x900`
+- The parser and registration are in `sway/commands/dynamic_resize.c`,
+  `sway/commands.c`, and `include/sway/commands.h`. The rule is documented in
+  `sway/sway.5.scd`.
+- Rule order is significant. Specific title rules must precede an app-wide
+  fallback such as the ordinary Ghostty rule.
 
 ### Moves and command compatibility
 
@@ -109,6 +111,25 @@ currently local worktree changes, not a separate library or plugin.
   accepted for Sway/i3 config and IPC compatibility but intentionally do not
   replace dwindle.
 - IPC move and floating events must still be emitted after successful changes.
+
+### Regression invariants
+
+- New windows extend `workspace_get_dwindle_tail()`; current keyboard or pointer
+  focus must not select a new spawn root.
+- Removing or moving a leaf must collapse its obsolete binary parent without
+  corrupting the surviving branch, focus, fullscreen pointers, or workspace
+  ownership.
+- Directional movement must sample beyond the complete inner or outer gap.
+  Sampling inside a gap can select the expanding source sibling and make the
+  move appear to do nothing.
+- Directional movement at the workspace boundary can target the active
+  workspace on an adjacent output. Do not limit it to the source workspace.
+- Floating-to-tiled must clear old fractions before insertion and must not clear
+  the fractions assigned by insertion. Reversing this order makes the returned
+  window extremely small.
+- Fullscreen surface positioning must not reuse floating/tiled XDG geometry.
+  Fullscreen video previously rendered clipped and off-center when
+  `view_center_and_clip_surface()` centered non-floating views.
 
 ### Tests
 
@@ -144,8 +165,9 @@ currently local worktree changes, not a separate library or plugin.
 - Run the full relevant suite with
   `meson test -C build --print-errorlogs`.
 - Run `git diff --check`.
-- Never start Sway as part of automated validation. The user will launch and
-  test the resulting binary from their current Hyprland session.
+- Never start, exit, reload, or restart Sway as part of automated validation.
+  The user controls the active compositor session and will launch or restart
+  the rebuilt binary when ready.
 
 ## Local runtime and deployment
 
@@ -164,17 +186,58 @@ currently local worktree changes, not a separate library or plugin.
   a config change.
 - The current bar/window theme intentionally uses only `#141318` and
   `#cbbeff`, with `Maple Mono NF ExtraBold 11` as the global Sway font.
+- `mouse_warping container` makes the pointer follow keyboard focus. This is a
+  normal Sway config behavior, not a separate source customization.
+- Pointer input uses `accel_profile flat`, `pointer_accel 0`, and disabled
+  natural scrolling. Inner and outer gaps are both `5`; borders are `3` pixels.
 - Use `swaymsg reload` only when a config change needs to be applied. A source
   rebuild requires the user to exit and launch Sway again; never restart their
   session automatically.
 - Do not reload a config containing newly added custom commands into an older
   running Sway process. Restart into the rebuilt binary first.
 
+### Active external configuration
+
+These files are intentionally outside this repository. Inspect them before
+making assumptions, and edit them only when the user explicitly asks.
+
+- `~/.config/sway/config`:
+  - DP-2 is at `0,0`, runs `1920x1080@239.760Hz`, and owns workspaces 1, 3,
+    and 4.
+  - DP-3 is at `1920,0`, runs `1920x1080@165.003Hz`, and owns workspace 2.
+  - Sway has no useful Hyprland-style `primary` output flag for initial
+    workspace placement; explicit `workspace <number> output <name>` mappings
+    control it.
+  - `assign [class="discord"] workspace number 2` moves Discord when it starts;
+    it does not autostart Discord.
+  - The native `bar {}` block launches this worktree's symlinked `swaybar`.
+    It uses the two-color theme and disables the tray with `tray_output none`.
+- `~/.config/sway/config.d/50-systemd-user.conf` exports/imports
+  `XDG_CURRENT_DESKTOP=sway`, `DISPLAY`, `SWAYSOCK`, and `WAYLAND_DISPLAY` into
+  the systemd user and D-Bus activation environments. This supports
+  `xdg-desktop-portal-wlr`.
+- The active dynamic rules, in first-match order, are:
+
+```
+dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$" title="(?i)btop"] 810 700
+dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$" title="(?i)(nv|vim)"] 1220 730
+dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$"] 700 460
+dynamic_resize [app_id="^helium$"] 1200 800
+dynamic_resize [app_id="^org[.]gnome[.]Nautilus$"] 975 615
+dynamic_resize [class="^discord$"] 1200 900
+```
+
+- Ghostty, Helium, and Nautilus are native Wayland applications matched with
+  `app_id`. Discord is currently matched as an Xwayland application with
+  `class`. Confirm live identifiers with `swaymsg -t get_tree` before changing
+  criteria.
+
 ## Repository layout
 
 - Public tree/layout interfaces: `include/sway/tree/`
 - Pure dwindle helpers: `include/sway/tree/dwindle.h`
 - Dynamic resize state helper: `include/sway/tree/dynamic_resize.h`
+- Dynamic resize command parser: `sway/commands/dynamic_resize.c`
 - Tree mutation and arrangement: `sway/tree/`
 - Interactive tiled moves: `sway/input/seatop_move_tiling.c`
 - Command-driven moves/resizes/layout: `sway/commands/`
