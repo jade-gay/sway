@@ -68,6 +68,10 @@ to `https://github.com/swaywm/sway.git`. The fork's default branch and
   `workspace_add_tiling_at()`. The insertion helper then owns the new pair's
   fractions. Never clear them after insertion: doing so makes the returned
   window approximately 5% of the split on the next arrange pass.
+- Floating-to-tiled extends `workspace_get_dwindle_tail()` and forces the
+  returning window onto the new split's second side (right or bottom).
+  Floating geometry, pointer position, and focus must not select its target
+  leaf or insertion side.
 - Scratchpad removal, CSD/SSD transitions, floating state, and fullscreen state
   must remain intact through reparenting.
 - `view_center_and_clip_surface()` only centers floating views. Fullscreen views
@@ -210,9 +214,10 @@ to `https://github.com/swaywm/sway.git`. The fork's default branch and
   move appear to do nothing.
 - Directional movement at the workspace boundary can target the active
   workspace on an adjacent output. Do not limit it to the source workspace.
-- Floating-to-tiled must clear old fractions before insertion and must not clear
-  the fractions assigned by insertion. Reversing this order makes the returned
-  window extremely small.
+- Floating-to-tiled must extend the dwindle tail on the second side, independent
+  of floating geometry, pointer position, or focus. It must clear old fractions
+  before insertion and must not clear the fractions assigned by insertion.
+  Reversing the fraction order makes the returned window extremely small.
 - Fullscreen surface positioning must not reuse floating/tiled XDG geometry.
   Fullscreen video previously rendered clipped and off-center when
   `view_center_and_clip_surface()` centered non-floating views.

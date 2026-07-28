@@ -1031,18 +1031,13 @@ void container_set_floating(struct sway_container *container, bool enable) {
 		// new pair's authoritative fractions.
 		container->width_fraction = 0;
 		container->height_fraction = 0;
-		struct sway_container *reference =
-			seat_get_focus_inactive_tiling(seat, workspace);
-		if (reference && !reference->view) {
-			struct sway_container *view =
-				seat_get_focus_inactive_view(seat, &reference->node);
-			if (view) {
-				reference = view;
-			}
-		}
-		double lx = seat->cursor ? seat->cursor->cursor->x : NAN;
-		double ly = seat->cursor ? seat->cursor->cursor->y : NAN;
-		workspace_add_tiling_at(workspace, container, reference, lx, ly, 0);
+		// Treat a returning floater like a newly mapped tiled view: extend the
+		// spawn spiral and put it on the second side of the new split. Its
+		// floating position and the current pointer/focus must not choose the
+		// target leaf or insertion side.
+		struct sway_container *tail = workspace_get_dwindle_tail(workspace);
+		workspace_add_tiling_at(workspace, container, tail, NAN, NAN,
+				WLR_DIRECTION_RIGHT);
 		if (container->view) {
 			view_set_tiled(container->view, true);
 			if (container->view->using_csd) {

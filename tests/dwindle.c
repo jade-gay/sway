@@ -20,6 +20,7 @@ int main(void) {
 	// split geometry, that means right or bottom.
 	assert(dwindle_force_split_before(1, false));
 	assert(!dwindle_force_split_before(2, true));
+	assert(!dwindle_force_split_before(2, false));
 	assert(dwindle_force_split_before(0, true));
 	assert(!dwindle_force_split_before(0, false));
 
