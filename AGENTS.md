@@ -30,7 +30,8 @@ This is a source-only fork of upstream Sway at
 `https://github.com/jade-gay/sway.git`. The dwindle and dynamic-resize
 implementation is committed on `master` (introduced by `e9c2b703`); it is not
 a separate library or plugin. `origin` is the user's fork and `upstream` points
-to `https://github.com/swaywm/sway.git`.
+to `https://github.com/swaywm/sway.git`. The fork's default branch and
+`origin/HEAD` are both `master`; it does not have a `main` branch.
 
 ### Tree model and insertion
 
@@ -94,6 +95,56 @@ to `https://github.com/swaywm/sway.git`.
 - Rule order is significant. Specific title rules must precede an app-wide
   fallback such as the ordinary Ghostty rule.
 
+### Hyprland-style unaccelerated pointer motion
+
+- `force_no_accel yes|no` is a custom global command implemented by this fork.
+  It defaults to `no`.
+- When enabled, physical relative pointer events move Sway's compositor cursor
+  with the event's unaccelerated delta. This matches Hyprland 0.56's
+  `input.force_no_accel` behavior.
+- Relative-pointer clients still receive both the original accelerated and
+  unaccelerated delta channels before Sway selects the compositor cursor delta.
+  Do not replace both protocol values with the unaccelerated value; games need
+  the standard protocol semantics.
+- Absolute devices and non-pointer synthesized motion retain their normal
+  deltas.
+- The command parser is `sway/commands/force_no_accel.c`. The pure delta
+  selector is `include/sway/input/pointer.h`, and the event integration is in
+  `sway/input/cursor.c`.
+
+### Immediate game presentation and tearing
+
+- `immediate yes|no` is a custom per-view command implemented by this fork. It
+  is an alias for Sway's existing per-view `allow_tearing` override and matches
+  Hyprland 0.56's boolean `immediate` window-rule effect.
+- Use it through Sway's native rule mechanism:
+  `for_window <criteria> immediate yes`.
+- `cmd_immediate()` and `cmd_allow_tearing()` share the same implementation in
+  `sway/commands/allow_tearing.c`. Do not create a second tearing state.
+- Immediate page flips require both the view override and
+  `output <name> allow_tearing yes`. Sway only tears when the eligible view is
+  fullscreen on that output.
+- The active config enables output tearing globally with
+  `output * allow_tearing yes` and keeps `output * max_render_time off`, then
+  marks the Hyprland game criteria immediate for both native Wayland `app_id`
+  and Xwayland `class` identifiers.
+
+### Realtime compositor scheduling
+
+- Sway's existing `set_rr_scheduling()` in `sway/realtime.c` requests
+  `SCHED_RR` at the minimum realtime priority and resets forked children to
+  `SCHED_OTHER`; this is not a custom scheduling implementation.
+- `/etc/security/limits.d/95-sway.conf` grants only `jade - rtprio 1`. The file
+  is root-owned with mode `0644`, and the TTY login stack applies it through
+  `pam_limits.so`.
+- The limit is inherited only after a complete TTY logout and login. Restarting
+  Sway from a shell created before the limits file was installed does not apply
+  it.
+- The active Sway process has been verified with `chrt -p` as `SCHED_RR`
+  priority `1`, with both soft and hard `RLIMIT_RTPRIO` set to `1`.
+- Keep the limit at priority `1`. Do not grant an unnecessarily high realtime
+  priority or make game processes inherit Sway's scheduler policy.
+
 ### Moves and command compatibility
 
 - Command-driven moves and pointer-driven tiled drops both route through
@@ -138,7 +189,10 @@ to `https://github.com/swaywm/sway.git`.
   split-ratio fallback behavior.
 - `tests/dynamic_resize.c` covers eligibility, first-match state capture,
   transitions between special sizes, and restoration.
-- `tests/meson.build` registers them as `dwindle` and `dynamic-resize`.
+- `tests/pointer_motion.c` covers accelerated, forced-unaccelerated, and
+  non-pointer delta selection.
+- `tests/meson.build` registers them as `dwindle`, `dynamic-resize`, and
+  `pointer-motion`.
 
 ## Implementation guidelines
 
@@ -162,6 +216,8 @@ to `https://github.com/swaywm/sway.git`.
   `meson test -C build dwindle --print-errorlogs`.
 - Run the dynamic sizing test with
   `meson test -C build dynamic-resize --print-errorlogs`.
+- Run the pointer delta test with
+  `meson test -C build pointer-motion --print-errorlogs`.
 - Run the full relevant suite with
   `meson test -C build --print-errorlogs`.
 - Run `git diff --check`.
@@ -188,8 +244,15 @@ to `https://github.com/swaywm/sway.git`.
   `#cbbeff`, with `Maple Mono NF ExtraBold 11` as the global Sway font.
 - `mouse_warping container` makes the pointer follow keyboard focus. This is a
   normal Sway config behavior, not a separate source customization.
-- Pointer input uses `accel_profile flat`, `pointer_accel 0`, and disabled
-  natural scrolling. Inner and outer gaps are both `5`; borders are `3` pixels.
+- Pointer input uses `accel_profile flat`, `pointer_accel 0`,
+  `force_no_accel yes`, and disabled natural scrolling. This mirrors the active
+  Hyprland input config. Inner and outer gaps are both `5`; borders are `3`
+  pixels.
+- TTY logins permanently grant `rtprio 1` through
+  `/etc/security/limits.d/95-sway.conf`. Sway therefore enters its built-in
+  `SCHED_RR` priority `1` policy on every normal launch. Verify the live process
+  with `chrt -p $(pgrep -n -x sway)` from Bash or
+  `chrt -p (pgrep -n -x sway)` from Fish.
 - Use `swaymsg reload` only when a config change needs to be applied. A source
   rebuild requires the user to exit and launch Sway again; never restart their
   session automatically.
@@ -210,8 +273,13 @@ making assumptions, and edit them only when the user explicitly asks.
     control it.
   - `assign [class="discord"] workspace number 2` moves Discord when it starts;
     it does not autostart Discord.
+  - `workspace number 1` at the end of the config selects workspace 1 on DP-2
+    at startup.
   - The native `bar {}` block launches this worktree's symlinked `swaybar`.
     It uses the two-color theme and disables the tray with `tray_output none`.
+  - Tearing is allowed on all outputs, with output max render time disabled.
+    Actual immediate page flips still require a fullscreen view whose
+    per-view immediate override or tearing hint permits tearing.
 - `~/.config/sway/config.d/50-systemd-user.conf` exports/imports
   `XDG_CURRENT_DESKTOP=sway`, `DISPLAY`, `SWAYSOCK`, and `WAYLAND_DISPLAY` into
   the systemd user and D-Bus activation environments. This supports
@@ -219,12 +287,19 @@ making assumptions, and edit them only when the user explicitly asks.
 - The active dynamic rules, in first-match order, are:
 
 ```
-dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$" title="(?i)btop"] 810 700
+dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$" title="(?i)btop"] 870 700
 dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$" title="(?i)(nv|vim)"] 1220 730
 dynamic_resize [app_id="^com[.]mitchellh[.]ghostty$"] 700 460
 dynamic_resize [app_id="^helium$"] 1200 800
 dynamic_resize [app_id="^org[.]gnome[.]Nautilus$"] 975 615
 dynamic_resize [class="^discord$"] 1200 900
+```
+
+- The Hyprland game match is applied to both Wayland and Xwayland views:
+
+```
+for_window [app_id="(org.vinegarhq.Sober|explorer.exe|steam_.*|cs2|Minecraft.*|Lunar.*)$"] immediate yes
+for_window [class="(org.vinegarhq.Sober|explorer.exe|steam_.*|cs2|Minecraft.*|Lunar.*)$"] immediate yes
 ```
 
 - Ghostty, Helium, and Nautilus are native Wayland applications matched with
@@ -238,6 +313,9 @@ dynamic_resize [class="^discord$"] 1200 900
 - Pure dwindle helpers: `include/sway/tree/dwindle.h`
 - Dynamic resize state helper: `include/sway/tree/dynamic_resize.h`
 - Dynamic resize command parser: `sway/commands/dynamic_resize.c`
+- Unaccelerated pointer helper: `include/sway/input/pointer.h`
+- Relative pointer event handling: `sway/input/cursor.c`
+- Immediate/tearing view command: `sway/commands/allow_tearing.c`
 - Tree mutation and arrangement: `sway/tree/`
 - Interactive tiled moves: `sway/input/seatop_move_tiling.c`
 - Command-driven moves/resizes/layout: `sway/commands/`

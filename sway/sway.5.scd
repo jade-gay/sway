@@ -231,6 +231,16 @@ set|plus|minus|toggle <amount>
 	the per-output *allow_tearing* setting. See *sway-output*(5) for further
 	details.
 
+*immediate* yes|no
+	Enable or disable immediate presentation for a fullscreen application.
+	This is an alias for the per-view *allow_tearing* command and matches
+	Hyprland's _immediate_ window-rule effect. It is intended for use with
+	*for_window*, for example:
+
+		for_window [app_id="^game$"] immediate yes
+
+	The output must also have *allow_tearing yes* configured.
+
 *move* left|right|up|down [<px> px]
 	Moves the focused container in the direction specified. The optional _px_
 	argument specifies how many pixels to move the container. If unspecified,
@@ -766,6 +776,12 @@ The default colors are:
 	window decoration color would be immediately reset to *client.focused*. This
 	may make it unnecessarily hard to tell which window originally raised the
 	event. This option allows one to set a _timeout_ in ms to delay the urgency hint reset.
+
+*force_no_accel* yes|no
+	Use each physical pointer event's unaccelerated delta for compositor cursor
+	motion. Relative-pointer clients continue to receive both the accelerated
+	and unaccelerated deltas. This matches Hyprland's _force_no_accel_ behavior.
+	The default is _no_.
 
 *titlebar_border_thickness* <thickness>
 	Thickness of the titlebar border in pixels

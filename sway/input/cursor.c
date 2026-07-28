@@ -21,6 +21,7 @@
 #include "sway/commands.h"
 #include "sway/input/cursor.h"
 #include "sway/input/keyboard.h"
+#include "sway/input/pointer.h"
 #include "sway/input/tablet.h"
 #include "sway/layers.h"
 #include "sway/output.h"
@@ -295,8 +296,14 @@ void pointer_motion(struct sway_cursor *cursor, uint32_t time_msec,
 		cursor->seat->wlr_seat, (uint64_t)time_msec * 1000,
 		dx, dy, dx_unaccel, dy_unaccel);
 
+	bool is_pointer = device->type == WLR_INPUT_DEVICE_POINTER;
+	dx = pointer_motion_select_delta(
+			config->force_no_accel, is_pointer, dx, dx_unaccel);
+	dy = pointer_motion_select_delta(
+			config->force_no_accel, is_pointer, dy, dy_unaccel);
+
 	// Only apply pointer constraints to real pointer input.
-	if (cursor->active_constraint && device->type == WLR_INPUT_DEVICE_POINTER) {
+	if (cursor->active_constraint && is_pointer) {
 		struct wlr_surface *surface = NULL;
 		double sx, sy;
 		node_at_coords(cursor->seat,
