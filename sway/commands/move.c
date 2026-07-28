@@ -14,6 +14,7 @@
 #include "sway/server.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
+#include "sway/tree/dwindle.h"
 #include "sway/tree/root.h"
 #include "sway/tree/workspace.h"
 #include "stringop.h"
@@ -254,11 +255,10 @@ static void container_move_to_container(struct sway_container *container,
 	container->pending.width = container->pending.height = 0;
 	container->width_fraction = container->height_fraction = 0;
 
-	if (destination->view) {
-		container_add_sibling(destination, container, 1);
-	} else {
-		container_add_child(destination, container);
-	}
+	double lx = destination->pending.x + destination->pending.width / 2.0;
+	double ly = destination->pending.y + destination->pending.height / 2.0;
+	workspace_add_tiling_at(destination->pending.workspace, container,
+			destination->view ? destination : NULL, lx, ly, 0);
 
 	if (container->view) {
 		ipc_event_window(container, "move");
@@ -297,6 +297,104 @@ static bool container_move_to_next_output(struct sway_container *container,
 	return false;
 }
 
+static bool container_dwindle_move_in_direction(
+		struct sway_container *container, enum wlr_direction move_dir) {
+	struct sway_workspace *old_ws = container->pending.workspace;
+	struct sway_container *parent = container->pending.parent;
+	enum wlr_direction override = 0;
+
+	if (parent && parent->is_dwindle &&
+			parent->pending.children->length == 2) {
+		int index = list_find(parent->pending.children, container);
+		struct sway_container *partner =
+			parent->pending.children->items[index == 0 ? 1 : 0];
+		bool toward_partner =
+			(move_dir == WLR_DIRECTION_UP &&
+				parent->pending.layout == L_VERT && index == 1) ||
+			(move_dir == WLR_DIRECTION_DOWN &&
+				parent->pending.layout == L_VERT && index == 0) ||
+			(move_dir == WLR_DIRECTION_LEFT &&
+				parent->pending.layout == L_HORIZ && index == 1) ||
+			(move_dir == WLR_DIRECTION_RIGHT &&
+				parent->pending.layout == L_HORIZ && index == 0);
+		if (toward_partner && partner->view) {
+			override = move_dir;
+		}
+	}
+
+	double lx = container->pending.x + container->pending.width / 2.0;
+	double ly = container->pending.y + container->pending.height / 2.0;
+	struct wlr_box output_box;
+	output_get_box(old_ws->output, &output_box);
+	bool exits_workspace = false;
+	switch (move_dir) {
+	case WLR_DIRECTION_LEFT:
+		exits_workspace = dwindle_at_workspace_edge(
+				container->pending.x, container->pending.width,
+				old_ws->x, old_ws->width, true);
+		lx = dwindle_move_focal_coordinate(
+				container->pending.x, container->pending.width,
+				old_ws->x, old_ws->width,
+				output_box.x, output_box.width,
+				old_ws->gaps_inner, true);
+		break;
+	case WLR_DIRECTION_RIGHT:
+		exits_workspace = dwindle_at_workspace_edge(
+				container->pending.x, container->pending.width,
+				old_ws->x, old_ws->width, false);
+		lx = dwindle_move_focal_coordinate(
+				container->pending.x, container->pending.width,
+				old_ws->x, old_ws->width,
+				output_box.x, output_box.width,
+				old_ws->gaps_inner, false);
+		break;
+	case WLR_DIRECTION_UP:
+		exits_workspace = dwindle_at_workspace_edge(
+				container->pending.y, container->pending.height,
+				old_ws->y, old_ws->height, true);
+		ly = dwindle_move_focal_coordinate(
+				container->pending.y, container->pending.height,
+				old_ws->y, old_ws->height,
+				output_box.y, output_box.height,
+				old_ws->gaps_inner, true);
+		break;
+	case WLR_DIRECTION_DOWN:
+		exits_workspace = dwindle_at_workspace_edge(
+				container->pending.y, container->pending.height,
+				old_ws->y, old_ws->height, false);
+		ly = dwindle_move_focal_coordinate(
+				container->pending.y, container->pending.height,
+				old_ws->y, old_ws->height,
+				output_box.y, output_box.height,
+				old_ws->gaps_inner, false);
+		break;
+	}
+
+	struct sway_workspace *new_ws = old_ws;
+	struct sway_output *next_output = exits_workspace ?
+		output_get_in_direction(old_ws->output, move_dir) : NULL;
+	struct wlr_output *wlr_output = !next_output ?
+		wlr_output_layout_output_at(root->output_layout, lx, ly) : NULL;
+	if (next_output) {
+		new_ws = output_get_active_workspace(next_output);
+		override = 0;
+	} else if (wlr_output && wlr_output->data != old_ws->output) {
+		new_ws = output_get_active_workspace(wlr_output->data);
+		override = 0;
+	} else if (workspace_num_tiling_views(old_ws) == 1) {
+		next_output =
+			output_get_in_direction(old_ws->output, move_dir);
+		if (!next_output) {
+			return false;
+		}
+		new_ws = output_get_active_workspace(next_output);
+		override = 0;
+	}
+
+	workspace_add_tiling_at(new_ws, container, NULL, lx, ly, override);
+	return true;
+}
+
 // Returns true if moved
 static bool container_move_in_direction(struct sway_container *container,
 		enum wlr_direction move_dir) {
@@ -310,6 +408,8 @@ static bool container_move_in_direction(struct sway_container *container,
 	case FULLSCREEN_GLOBAL:
 		return false;
 	}
+
+	return container_dwindle_move_in_direction(container, move_dir);
 
 	int offs =
 		move_dir == WLR_DIRECTION_LEFT || move_dir == WLR_DIRECTION_UP ? -1 : 1;
@@ -710,18 +810,10 @@ static struct cmd_results *cmd_move_in_direction(
 		return cmd_results_new(CMD_SUCCESS, NULL);
 	}
 	struct sway_workspace *old_ws = container->pending.workspace;
-	struct sway_container *old_parent = container->pending.parent;
 
 	if (!container_move_in_direction(container, direction)) {
 		// Container didn't move
 		return cmd_results_new(CMD_SUCCESS, NULL);
-	}
-
-	// clean-up, destroying parents if the container was the last child
-	if (old_parent) {
-		container_reap_empty(old_parent);
-	} else if (old_ws) {
-		workspace_consider_destroy(old_ws);
 	}
 
 	struct sway_workspace *new_ws = container->pending.workspace;
@@ -729,7 +821,9 @@ static struct cmd_results *cmd_move_in_direction(
 	if (root->fullscreen_global) {
 		arrange_root();
 	} else {
-		arrange_workspace(old_ws);
+		if (old_ws && !old_ws->node.destroying) {
+			arrange_workspace(old_ws);
+		}
 		if (new_ws != old_ws) {
 			arrange_workspace(new_ws);
 		}

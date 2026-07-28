@@ -1,11 +1,14 @@
 #include <ctype.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_ext_workspace_v1.h>
+#include <wlr/util/box.h>
 #include "log.h"
 #include "stringop.h"
 #include "sway/desktop/transaction.h"
@@ -17,6 +20,7 @@
 #include "sway/server.h"
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
+#include "sway/tree/dwindle.h"
 #include "sway/tree/node.h"
 #include "sway/tree/view.h"
 #include "sway/tree/workspace.h"
@@ -936,25 +940,201 @@ void workspace_detach(struct sway_workspace *workspace) {
 	node_set_dirty(&output->node);
 }
 
+static struct sway_container *container_get_dwindle_tail(
+		struct sway_container *con) {
+	if (con->view) {
+		return con;
+	}
+	for (int i = con->pending.children->length - 1; i >= 0; --i) {
+		struct sway_container *child = con->pending.children->items[i];
+		struct sway_container *tail = container_get_dwindle_tail(child);
+		if (tail) {
+			return tail;
+		}
+	}
+	return NULL;
+}
+
+struct sway_container *workspace_get_dwindle_tail(
+		struct sway_workspace *workspace) {
+	for (int i = workspace->tiling->length - 1; i >= 0; --i) {
+		struct sway_container *con = workspace->tiling->items[i];
+		struct sway_container *tail = container_get_dwindle_tail(con);
+		if (tail) {
+			return tail;
+		}
+	}
+	return NULL;
+}
+
 struct sway_container *workspace_add_tiling(struct sway_workspace *workspace,
 		struct sway_container *con) {
+	struct sway_seat *seat = input_manager_get_default_seat();
+	struct sway_container *target =
+		seat_get_focus_inactive_tiling(seat, workspace);
+	if (target && !target->view) {
+		struct sway_container *view =
+			seat_get_focus_inactive_view(seat, &target->node);
+		if (view) {
+			target = view;
+		}
+	}
+	double lx = NAN;
+	double ly = NAN;
+	if (seat->cursor) {
+		lx = seat->cursor->cursor->x;
+		ly = seat->cursor->cursor->y;
+	}
+	return workspace_add_tiling_at(workspace, con, target, lx, ly, 0);
+}
+
+struct closest_dwindle_data {
+	struct sway_container *skip;
+	struct sway_container *closest;
+	double lx, ly;
+	double distance;
+};
+
+static void find_closest_dwindle(struct sway_container *con, void *data) {
+	struct closest_dwindle_data *closest = data;
+	if (!con->view || con == closest->skip ||
+			container_is_floating_or_child(con)) {
+		return;
+	}
+	double x = fmax(con->pending.x,
+			fmin(closest->lx, con->pending.x + con->pending.width));
+	double y = fmax(con->pending.y,
+			fmin(closest->ly, con->pending.y + con->pending.height));
+	double dx = closest->lx - x;
+	double dy = closest->ly - y;
+	double distance = dx * dx + dy * dy;
+	if (!closest->closest || distance < closest->distance) {
+		closest->closest = con;
+		closest->distance = distance;
+	}
+}
+
+static struct sway_container *workspace_closest_dwindle(
+		struct sway_workspace *workspace, struct sway_container *skip,
+		double lx, double ly) {
+	struct closest_dwindle_data data = {
+		.skip = skip,
+		.lx = lx,
+		.ly = ly,
+		.distance = INFINITY,
+	};
+	workspace_for_each_container(workspace, find_closest_dwindle, &data);
+	return data.closest;
+}
+
+struct sway_container *workspace_add_tiling_at(
+		struct sway_workspace *workspace, struct sway_container *con,
+		struct sway_container *target, double lx, double ly,
+		enum wlr_direction direction) {
+	if (target && (!target->view || target == con ||
+			container_has_ancestor(target, con))) {
+		target = NULL;
+	}
+	struct sway_workspace *old_workspace = con->pending.workspace;
+	struct sway_container *old_parent = con->pending.parent;
 	if (con->pending.workspace) {
-		struct sway_container *old_parent = con->pending.parent;
 		container_detach(con);
 		if (old_parent) {
 			container_reap_empty(old_parent);
+		} else if (old_workspace != workspace) {
+			workspace_consider_destroy(old_workspace);
+		}
+		if (old_workspace && !old_workspace->node.destroying) {
+			arrange_workspace(old_workspace);
 		}
 	}
-	if (config->default_layout != L_NONE) {
-		con = container_split(con, config->default_layout);
+
+	if (workspace->tiling->length == 0) {
+		workspace_insert_tiling_direct(workspace, con, 0);
+		return con;
 	}
-	list_add(workspace->tiling, con);
-	con->pending.workspace = workspace;
-	container_for_each_child(con, set_workspace, NULL);
-	container_handle_fullscreen_reparent(con);
+
+	if (!target || target == con || target->pending.workspace != workspace ||
+			!target->view) {
+		if (isfinite(lx) && isfinite(ly)) {
+			target = workspace_closest_dwindle(workspace, con, lx, ly);
+		}
+		if (!target) {
+			struct sway_seat *seat = input_manager_get_default_seat();
+			target = seat_get_focus_inactive_tiling(seat, workspace);
+			if (target && !target->view) {
+				target = seat_get_focus_inactive_view(seat, &target->node);
+			}
+		}
+	}
+	if (!target) {
+		target = workspace_closest_dwindle(workspace, con,
+				workspace->x + workspace->width / 2.0,
+				workspace->y + workspace->height / 2.0);
+	}
+	if (!sway_assert(target, "Dwindle workspace has no insertion target")) {
+		workspace_insert_tiling_direct(workspace, con,
+				workspace->tiling->length);
+		return con;
+	}
+
+	struct sway_container *parent = container_create(NULL);
+	parent->is_dwindle = true;
+	parent->dwindle_split_ratio = 1.0;
+	parent->pending.x = target->pending.x;
+	parent->pending.y = target->pending.y;
+	parent->pending.width = target->pending.width;
+	parent->pending.height = target->pending.height;
+	parent->width_fraction = target->width_fraction;
+	parent->height_fraction = target->height_fraction;
+	parent->pending.layout = dwindle_split_is_horizontal(
+			parent->pending.width, parent->pending.height) ?
+		L_HORIZ : L_VERT;
+
+	int force_split = 0;
+	switch (direction) {
+	case WLR_DIRECTION_LEFT:
+	case WLR_DIRECTION_UP:
+		force_split = 1;
+		break;
+	case WLR_DIRECTION_RIGHT:
+	case WLR_DIRECTION_DOWN:
+		force_split = 2;
+		break;
+	default:
+		break;
+	}
+	if (!isfinite(lx) || !isfinite(ly)) {
+		lx = target->pending.x + target->pending.width / 2.0;
+		ly = target->pending.y + target->pending.height / 2.0;
+	}
+	bool point_before = dwindle_insert_before(target->pending.x,
+			target->pending.y, target->pending.width,
+			target->pending.height, lx, ly);
+	bool new_first =
+		dwindle_force_split_before(force_split, point_before);
+
+	struct sway_seat *seat = input_manager_get_default_seat();
+	bool restore_target_focus = seat_get_focus(seat) == &target->node;
+	container_replace(target, parent);
+	if (new_first) {
+		container_add_child(parent, con);
+		container_add_child(parent, target);
+	} else {
+		container_add_child(parent, target);
+		container_add_child(parent, con);
+	}
+	double first_share = parent->dwindle_split_ratio / 2.0;
+	struct sway_container *first = parent->pending.children->items[0];
+	struct sway_container *second = parent->pending.children->items[1];
+	first->width_fraction = first->height_fraction = first_share;
+	second->width_fraction = second->height_fraction = 1.0 - first_share;
+	if (restore_target_focus) {
+		seat_set_raw_focus(seat, &parent->node);
+		seat_set_raw_focus(seat, &target->node);
+	}
 	workspace_update_representation(workspace);
 	node_set_dirty(&workspace->node);
-	node_set_dirty(&con->node);
 	return con;
 }
 
@@ -984,14 +1164,7 @@ void workspace_insert_tiling_direct(struct sway_workspace *workspace,
 
 struct sway_container *workspace_insert_tiling(struct sway_workspace *workspace,
 		struct sway_container *con, int index) {
-	if (con->pending.workspace) {
-		container_detach(con);
-	}
-	if (config->default_layout != L_NONE) {
-		con = container_split(con, config->default_layout);
-	}
-	workspace_insert_tiling_direct(workspace, con, index);
-	return con;
+	return workspace_add_tiling(workspace, con);
 }
 
 bool workspace_has_single_visible_container(struct sway_workspace *ws) {

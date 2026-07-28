@@ -340,6 +340,11 @@ void view_update_app_id(struct sway_view *view);
 void view_update_title(struct sway_view *view, bool force);
 
 /**
+ * Apply or restore any matching dynamic_resize rule for this view.
+ */
+void view_update_dynamic_resize(struct sway_view *view);
+
+/**
  * Run any criteria that match the view and haven't been run on this view
  * before.
  */

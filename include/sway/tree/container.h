@@ -5,6 +5,7 @@
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_scene.h>
 #include "list.h"
+#include "sway/tree/dynamic_resize.h"
 #include "sway/tree/node.h"
 
 struct sway_view;
@@ -122,6 +123,13 @@ struct sway_container {
 	double width_fraction;
 	double height_fraction;
 
+	// Dwindle split nodes always have two children. The split orientation is
+	// derived from the node's current geometry and split_ratio is shared
+	// between horizontal and vertical orientations.
+	bool is_dwindle;
+	double dwindle_split_ratio;
+	struct dynamic_resize_state dynamic_resize;
+
 	// The share of space of the parent container that all children occupy
 	// Used for doing the resize calculations
 	double child_total_width;
@@ -200,6 +208,9 @@ void floating_fix_coordinates(struct sway_container *con,
 		struct wlr_box *old, struct wlr_box *new);
 
 void container_floating_resize_and_center(struct sway_container *con);
+
+void container_floating_resize_and_center_to(struct sway_container *con,
+		double width, double height);
 
 void container_floating_set_default_size(struct sway_container *con);
 

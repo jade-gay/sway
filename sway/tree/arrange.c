@@ -8,6 +8,7 @@
 #include "sway/tree/container.h"
 #include "sway/output.h"
 #include "sway/tree/workspace.h"
+#include "sway/tree/dwindle.h"
 #include "sway/tree/view.h"
 #include "list.h"
 #include "log.h"
@@ -218,6 +219,39 @@ static void arrange_floating(list_t *floating) {
 	}
 }
 
+static void prepare_dwindle_split(struct sway_container *container,
+		struct wlr_box *box) {
+	if (!container->is_dwindle ||
+			container->pending.children->length != 2) {
+		return;
+	}
+
+	struct sway_container *first = container->pending.children->items[0];
+	struct sway_container *second = container->pending.children->items[1];
+	enum sway_container_layout old_layout = container->pending.layout;
+	enum sway_container_layout new_layout =
+		dwindle_split_is_horizontal(box->width, box->height) ?
+		L_HORIZ : L_VERT;
+
+	double first_fraction = old_layout == L_VERT ?
+		first->height_fraction : first->width_fraction;
+	double second_fraction = old_layout == L_VERT ?
+		second->height_fraction : second->width_fraction;
+	container->dwindle_split_ratio = dwindle_ratio_from_fractions(
+			first_fraction, second_fraction,
+			container->dwindle_split_ratio);
+
+	double first_share = container->dwindle_split_ratio / 2.0;
+	if (new_layout == L_HORIZ) {
+		first->width_fraction = first_share;
+		second->width_fraction = 1.0 - first_share;
+	} else {
+		first->height_fraction = first_share;
+		second->height_fraction = 1.0 - first_share;
+	}
+	container->pending.layout = new_layout;
+}
+
 static void arrange_children(list_t *children,
 		enum sway_container_layout layout, struct wlr_box *parent) {
 	// Calculate x, y, width and height of children
@@ -257,6 +291,7 @@ void arrange_container(struct sway_container *container) {
 	}
 	struct wlr_box box;
 	container_get_box(container, &box);
+	prepare_dwindle_split(container, &box);
 	arrange_children(container->pending.children, container->pending.layout, &box);
 	node_set_dirty(&container->node);
 }

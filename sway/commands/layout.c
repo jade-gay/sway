@@ -123,6 +123,9 @@ struct cmd_results *cmd_layout(int argc, char **argv) {
 		return cmd_results_new(CMD_INVALID,
 				"Can't run this command while there's no outputs connected.");
 	}
+	// Dwindle is the sole tiled layout in this fork.
+	return cmd_results_new(CMD_SUCCESS, NULL);
+
 	struct sway_container *container = config->handler_context.container;
 	struct sway_workspace *workspace = config->handler_context.workspace;
 

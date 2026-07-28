@@ -195,6 +195,7 @@ subdir('protocols')
 subdir('common')
 subdir('sway')
 subdir('swaymsg')
+subdir('tests')
 
 if get_option('swaybar') or get_option('swaynag')
 	subdir('client')

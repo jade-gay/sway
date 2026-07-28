@@ -9,6 +9,7 @@
 #include "sway/tree/node.h"
 
 struct sway_view;
+enum wlr_direction;
 
 struct sway_workspace_state {
 	struct sway_container *fullscreen;
@@ -122,6 +123,23 @@ void workspace_detach(struct sway_workspace *workspace);
 
 struct sway_container *workspace_add_tiling(struct sway_workspace *workspace,
 		struct sway_container *con);
+
+/**
+ * Return the terminal leaf of the workspace's dwindle tree. New views split
+ * this leaf so changing focus does not restart the dwindle sequence.
+ */
+struct sway_container *workspace_get_dwindle_tail(
+		struct sway_workspace *workspace);
+
+/**
+ * Insert a tiled container using Hyprland dwindle semantics. If target is
+ * NULL, the focused tiled view (or the closest view to lx,ly) is used.
+ * direction may be zero, or a wlr_direction to force the new side.
+ */
+struct sway_container *workspace_add_tiling_at(
+		struct sway_workspace *workspace, struct sway_container *con,
+		struct sway_container *target, double lx, double ly,
+		enum wlr_direction direction);
 
 void workspace_add_floating(struct sway_workspace *workspace,
 		struct sway_container *con);

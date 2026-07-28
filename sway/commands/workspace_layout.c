@@ -7,6 +7,10 @@ struct cmd_results *cmd_workspace_layout(int argc, char **argv) {
 	if ((error = checkarg(argc, "workspace_layout", EXPECTED_EQUAL_TO, 1))) {
 		return error;
 	}
+	// Accepted for i3 configuration compatibility; dwindle remains active.
+	config->default_layout = L_NONE;
+	return cmd_results_new(CMD_SUCCESS, NULL);
+
 	if (strcasecmp(argv[0], "default") == 0) {
 		config->default_layout = L_NONE;
 	} else if (strcasecmp(argv[0], "stacking") == 0) {

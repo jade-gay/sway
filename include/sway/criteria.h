@@ -17,6 +17,7 @@ enum criteria_type {
 	CT_ASSIGN_WORKSPACE        = 1 << 2,
 	CT_ASSIGN_WORKSPACE_NUMBER = 1 << 3,
 	CT_NO_FOCUS                = 1 << 4,
+	CT_DYNAMIC_RESIZE          = 1 << 5,
 };
 
 enum pattern_type {
@@ -34,6 +35,8 @@ struct criteria {
 	char *raw; // entire criteria string (for logging)
 	char *cmdlist;
 	char *target; // workspace or output name for `assign` criteria
+	int resize_width;
+	int resize_height;
 
 	struct pattern *title;
 	struct pattern *shell;

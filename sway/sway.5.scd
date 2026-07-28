@@ -781,6 +781,18 @@ The default colors are:
 	Whenever a window that matches _criteria_ appears, run list of commands.
 	See *CRITERIA* for more details.
 
+*dynamic_resize* <criteria> <width> <height>
+	Whenever a floating window's properties change, resize and center it to the
+	given dimensions if it matches _criteria_. The first matching
+	_dynamic_resize_ rule is used. The window's original floating size is saved
+	when it first matches and restored when it no longer matches any rule.
+	Tiled, hidden scratchpad, and fullscreen windows are not resized.
+
+	This is useful for terminal programs that update the terminal title. For
+	example:
+
+		dynamic_resize [app_id="^com\\.mitchellh\\.ghostty$" title="(?i)btop"] 810 700
+
 *gaps* inner|outer|horizontal|vertical|top|right|bottom|left <amount>
 	Sets default _amount_ pixels of _inner_ or _outer_ gap, where the inner
 	affects spacing around each window and outer affects the spacing around each

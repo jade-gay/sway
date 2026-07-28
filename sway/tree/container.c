@@ -1,8 +1,10 @@
 #include <assert.h>
 #include <drm_fourcc.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <wayland-server-core.h>
+#include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_foreign_toplevel_management_v1.h>
 #include <wlr/types/wlr_linux_dmabuf_v1.h>
 #include <wlr/types/wlr_output_layout.h>
@@ -10,6 +12,7 @@
 #include "sway/config.h"
 #include "sway/desktop/transaction.h"
 #include "sway/input/input-manager.h"
+#include "sway/input/cursor.h"
 #include "sway/input/seat.h"
 #include "sway/ipc-server.h"
 #include "sway/scene_descriptor.h"
@@ -110,6 +113,7 @@ struct sway_container *container_create(struct sway_view *view) {
 	}
 
 	c->pending.layout = L_NONE;
+	c->dwindle_split_ratio = 1.0;
 	c->view = view;
 	c->alpha = 1.0f;
 	c->marks = create_list();
@@ -511,7 +515,16 @@ void container_reap_empty(struct sway_container *con) {
 	}
 	struct sway_workspace *ws = con->pending.workspace;
 	while (con) {
-		if (con->pending.children->length) {
+		int children = con->pending.children->length;
+		if (children == 1 && con->is_dwindle) {
+			struct sway_container *parent = con->pending.parent;
+			struct sway_container *child = con->pending.children->items[0];
+			container_replace(con, child);
+			container_begin_destroy(con);
+			con = parent;
+			continue;
+		}
+		if (children) {
 			return;
 		}
 		struct sway_container *parent = con->pending.parent;
@@ -893,6 +906,38 @@ void container_floating_resize_and_center(struct sway_container *con) {
 	}
 }
 
+void container_floating_resize_and_center_to(struct sway_container *con,
+		double width, double height) {
+	if (!sway_assert(container_is_floating(con),
+			"Expected a floating container")) {
+		return;
+	}
+	if (!sway_assert(con->pending.workspace,
+			"Expected a floating container on a workspace")) {
+		return;
+	}
+
+	int min_width, max_width, min_height, max_height;
+	floating_calculate_constraints(&min_width, &max_width,
+			&min_height, &max_height);
+	width = fmax(min_width, fmin(width, max_width));
+	height = fmax(min_height, fmin(height, max_height));
+
+	double grow_width = width - con->pending.width;
+	double grow_height = height - con->pending.height;
+	con->pending.x -= grow_width / 2;
+	con->pending.y -= grow_height / 2;
+	con->pending.width = width;
+	con->pending.height = height;
+	con->pending.content_x -= grow_width / 2;
+	con->pending.content_y -= grow_height / 2;
+	con->pending.content_width += grow_width;
+	con->pending.content_height += grow_height;
+
+	container_floating_move_to_center(con);
+	arrange_container(con);
+}
+
 void container_floating_set_default_size(struct sway_container *con) {
 	if (!sway_assert(con->pending.workspace, "Expected a container on a workspace")) {
 		return;
@@ -979,22 +1024,23 @@ void container_set_floating(struct sway_container *container, bool enable) {
 			root_scratchpad_remove_container(container);
 		}
 		container_detach(container);
+		// Floating geometry must not influence the new dwindle split. Clear
+		// stale shares before insertion; workspace_add_tiling_at() assigns the
+		// new pair's authoritative fractions.
+		container->width_fraction = 0;
+		container->height_fraction = 0;
 		struct sway_container *reference =
 			seat_get_focus_inactive_tiling(seat, workspace);
-		if (reference) {
-			if (reference->view) {
-				container_add_sibling(reference, container, 1);
-			} else {
-				container_add_child(reference, container);
+		if (reference && !reference->view) {
+			struct sway_container *view =
+				seat_get_focus_inactive_view(seat, &reference->node);
+			if (view) {
+				reference = view;
 			}
-			container->pending.width = reference->pending.width;
-			container->pending.height = reference->pending.height;
-		} else {
-			struct sway_container *other =
-				workspace_add_tiling(workspace, container);
-			other->pending.width = workspace->width;
-			other->pending.height = workspace->height;
 		}
+		double lx = seat->cursor ? seat->cursor->cursor->x : NAN;
+		double ly = seat->cursor ? seat->cursor->cursor->y : NAN;
+		workspace_add_tiling_at(workspace, container, reference, lx, ly, 0);
 		if (container->view) {
 			view_set_tiled(container->view, true);
 			if (container->view->using_csd) {
@@ -1006,11 +1052,13 @@ void container_set_floating(struct sway_container *container, bool enable) {
 				}
 			}
 		}
-		container->width_fraction = 0;
-		container->height_fraction = 0;
 	}
 
 	container_end_mouse_operation(container);
+
+	if (container->view) {
+		view_update_dynamic_resize(container->view);
+	}
 
 	ipc_event_window(container, "floating");
 }

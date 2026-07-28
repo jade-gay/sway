@@ -10,6 +10,9 @@
 #include "log.h"
 
 static struct cmd_results *do_split(int layout) {
+	// Dwindle chooses each split from its geometry.
+	return cmd_results_new(CMD_SUCCESS, NULL);
+
 	struct sway_container *con = config->handler_context.container;
 	struct sway_workspace *ws = config->handler_context.workspace;
 	if (con) {
@@ -33,6 +36,9 @@ static struct cmd_results *do_split(int layout) {
 }
 
 static struct cmd_results *do_unsplit(void) {
+	// Dwindle owns and normalizes the binary split tree.
+	return cmd_results_new(CMD_SUCCESS, NULL);
+
 	struct sway_container *con = config->handler_context.container;
 	struct sway_workspace *ws = config->handler_context.workspace;
 

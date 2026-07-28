@@ -1,8 +1,10 @@
+#include <math.h>
 #include <stdlib.h>
 #include <strings.h>
 #include <wayland-server-core.h>
 #include <wlr/config.h>
 #include <wlr/render/wlr_renderer.h>
+#include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_buffer.h>
 #include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_foreign_toplevel_management_v1.h>
@@ -847,27 +849,12 @@ void view_map(struct sway_view *view, struct wlr_surface *wlr_surface,
 	}
 
 	struct sway_seat *seat = input_manager_current_seat();
-	struct sway_node *node =
-		seat_get_focus_inactive(seat, ws ? &ws->node : &root->node);
-	struct sway_container *target_sibling = NULL;
-	if (node && node->type == N_CONTAINER) {
-		if (container_is_floating(node->sway_container)) {
-			// If we're about to launch the view into the floating container, then
-			// launch it as a tiled view instead.
-			if (ws) {
-				target_sibling = seat_get_focus_inactive_tiling(seat, ws);
-				if (target_sibling) {
-					struct sway_container *con =
-						seat_get_focus_inactive_view(seat, &target_sibling->node);
-					if (con)  {
-						target_sibling = con;
-					}
-				}
-			} else {
-				ws = seat_get_last_known_workspace(seat);
-			}
-		} else {
-			target_sibling = node->sway_container;
+	if (!ws) {
+		struct sway_node *node =
+			seat_get_focus_inactive(seat, &root->node);
+		if (node && node->type == N_CONTAINER &&
+				container_is_floating(node->sway_container)) {
+			ws = seat_get_last_known_workspace(seat);
 		}
 	}
 
@@ -895,10 +882,12 @@ void view_map(struct sway_view *view, struct wlr_surface *wlr_surface,
 			&view->foreign_destroy);
 
 	struct sway_container *container = view->container;
-	if (target_sibling) {
-		container_add_sibling(target_sibling, container, 1);
-	} else if (ws) {
-		container = workspace_add_tiling(ws, container);
+	if (ws) {
+		double lx = seat->cursor ? seat->cursor->cursor->x : NAN;
+		double ly = seat->cursor ? seat->cursor->cursor->y : NAN;
+		struct sway_container *tail = workspace_get_dwindle_tail(ws);
+		container = workspace_add_tiling_at(ws, container, tail, lx, ly,
+				WLR_DIRECTION_RIGHT);
 	}
 	ipc_event_window(view->container, "new");
 
@@ -1035,7 +1024,7 @@ void view_center_and_clip_surface(struct sway_view *view) {
 
 	bool clip_to_geometry = true;
 
-	if (container_is_floating(con) || con->pending.fullscreen_mode != FULLSCREEN_NONE) {
+	if (container_is_floating(con)) {
 		// We always center the current coordinates rather than the next, as the
 		// geometry immediately affects the currently active rendering.
 		int x = (int) fmax(0, (con->current.content_width - view->geometry.width) / 2);
@@ -1102,6 +1091,32 @@ void view_update_app_id(struct sway_view *view) {
 	}
 }
 
+void view_update_dynamic_resize(struct sway_view *view) {
+	struct sway_container *con = view->container;
+	if (!con || con->node.destroying) {
+		return;
+	}
+
+	list_t *matches = criteria_for_view(view, CT_DYNAMIC_RESIZE);
+	struct criteria *match = matches->length ? matches->items[0] : NULL;
+	bool eligible = con->pending.workspace &&
+		container_is_floating(con) &&
+		!container_is_scratchpad_hidden(con) &&
+		con->pending.fullscreen_mode == FULLSCREEN_NONE;
+	double width = 0, height = 0;
+	enum dynamic_resize_action action = dynamic_resize_resolve(
+			&con->dynamic_resize, eligible, match,
+			con->pending.width, con->pending.height,
+			match ? match->resize_width : 0,
+			match ? match->resize_height : 0,
+			&width, &height);
+	list_free(matches);
+
+	if (action != DYNAMIC_RESIZE_NONE) {
+		container_floating_resize_and_center_to(con, width, height);
+	}
+}
+
 void view_update_title(struct sway_view *view, bool force) {
 	const char *title = view_get_title(view);
 
@@ -1152,6 +1167,8 @@ void view_update_title(struct sway_view *view, bool force) {
 	if (view->ext_foreign_toplevel) {
 		update_ext_foreign_toplevel(view);
 	}
+
+	view_update_dynamic_resize(view);
 }
 
 bool view_is_visible(struct sway_view *view) {
