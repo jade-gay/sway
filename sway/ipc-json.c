@@ -630,6 +630,13 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 	const char *tag = view_get_tag(c->view);
 	json_object_object_add(object, "tag", tag ? json_object_new_string(tag) : NULL);
 
+	json_object *tags = json_object_new_array();
+	for (int i = 0; i < c->tags->length; ++i) {
+		json_object_array_add(tags,
+				json_object_new_string(c->tags->items[i]));
+	}
+	json_object_object_add(object, "tags", tags);
+
 	json_object *idle_inhibitors = json_object_new_object();
 
 	struct sway_idle_inhibitor_v1 *user_inhibitor =
@@ -706,6 +713,58 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 		json_object_object_add(object, "window_properties", window_props);
 	}
 #endif
+}
+
+json_object *ipc_json_describe_client(struct sway_container *c) {
+	struct sway_view *view = c->view;
+	struct sway_workspace *workspace = c->pending.workspace;
+	struct sway_output *output = workspace ? workspace->output : NULL;
+	struct sway_seat *seat = input_manager_get_default_seat();
+	const char *app_id = view_get_app_id(view);
+	const char *xwayland_class = view_get_class(view);
+	const char *class = view_get_window_class(view);
+	const char *instance = view_get_instance(view);
+	const char *xdg_tag = view_get_tag(view);
+
+	json_object *object = json_object_new_object();
+	json_object_object_add(object, "id",
+			json_object_new_int64(c->node.id));
+	json_object_object_add(object, "title",
+			c->title ? json_object_new_string(c->title) : NULL);
+	json_object_object_add(object, "class",
+			class ? json_object_new_string(class) : NULL);
+	json_object_object_add(object, "app_id",
+			app_id ? json_object_new_string(app_id) : NULL);
+	json_object_object_add(object, "xwayland_class",
+			xwayland_class ? json_object_new_string(xwayland_class) : NULL);
+	json_object_object_add(object, "instance",
+			instance ? json_object_new_string(instance) : NULL);
+	json_object_object_add(object, "shell",
+			json_object_new_string(view_get_shell(view)));
+	json_object_object_add(object, "pid", json_object_new_int(view->pid));
+	json_object_object_add(object, "workspace",
+			workspace ? json_object_new_string(workspace->name) : NULL);
+	json_object_object_add(object, "output",
+			output ? json_object_new_string(output->wlr_output->name) : NULL);
+	json_object_object_add(object, "focused",
+			json_object_new_boolean(seat_get_focused_container(seat) == c));
+	json_object_object_add(object, "floating",
+			json_object_new_boolean(container_is_floating(c)));
+	json_object_object_add(object, "fullscreen",
+			json_object_new_boolean(
+				c->pending.fullscreen_mode != FULLSCREEN_NONE));
+	json_object_object_add(object, "visible",
+			json_object_new_boolean(view_is_visible(view)));
+
+	json_object *tags = json_object_new_array();
+	for (int i = 0; i < c->tags->length; ++i) {
+		json_object_array_add(tags,
+				json_object_new_string(c->tags->items[i]));
+	}
+	json_object_object_add(object, "tags", tags);
+	json_object_object_add(object, "xdg_tag",
+			xdg_tag ? json_object_new_string(xdg_tag) : NULL);
+	return object;
 }
 
 static void ipc_json_describe_container(struct sway_container *c, json_object *object) {

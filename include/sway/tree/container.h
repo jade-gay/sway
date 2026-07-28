@@ -148,6 +148,7 @@ struct sway_container {
 	float alpha;
 
 	list_t *marks; // char *
+	list_t *tags; // char *
 
 	struct {
 		struct wl_signal destroy;
@@ -342,6 +343,25 @@ void container_clear_marks(struct sway_container *container);
 bool container_has_mark(struct sway_container *container, char *mark);
 
 void container_add_mark(struct sway_container *container, char *mark);
+
+/**
+ * Return whether the container has the exact tag.
+ */
+bool container_has_tag(struct sway_container *container, const char *tag);
+
+/**
+ * Add a tag if it is not already present.
+ *
+ * Returns true when the tag list changed.
+ */
+bool container_add_tag(struct sway_container *container, const char *tag);
+
+/**
+ * Remove a tag if it is present.
+ *
+ * Returns true when the tag list changed.
+ */
+bool container_remove_tag(struct sway_container *container, const char *tag);
 
 void container_raise_floating(struct sway_container *con);
 

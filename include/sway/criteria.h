@@ -41,10 +41,10 @@ struct criteria {
 	struct pattern *title;
 	struct pattern *shell;
 	struct pattern *app_id;
+	struct pattern *class;
 	struct pattern *con_mark;
 	uint32_t con_id; // internal ID
 #if WLR_HAS_XWAYLAND
-	struct pattern *class;
 	uint32_t id; // X11 window ID
 	struct pattern *instance;
 	struct pattern *window_role;
@@ -60,6 +60,7 @@ struct criteria {
 	struct pattern *sandbox_app_id;
 	struct pattern *sandbox_instance_id;
 	struct pattern *tag;
+	struct pattern *xdg_tag;
 };
 
 bool criteria_is_empty(struct criteria *criteria);

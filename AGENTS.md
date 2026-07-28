@@ -126,8 +126,43 @@ to `https://github.com/swaywm/sway.git`. The fork's default branch and
   fullscreen on that output.
 - The active config enables output tearing globally with
   `output * allow_tearing yes` and keeps `output * max_render_time off`, then
-  marks the Hyprland game criteria immediate for both native Wayland `app_id`
-  and Xwayland `class` identifiers.
+  tags the Hyprland game criteria through the unified `class` identifier. A
+  tag-based rule then moves those views to workspace 3, marks them immediate,
+  and makes them fullscreen.
+
+### Hyprland-style window tags
+
+- The `class` criterion follows Hyprland semantics: it matches the X11 class
+  for Xwayland views and falls back to `app_id` for native Wayland views.
+  Existing X11 class rules remain compatible; use `app_id` when a rule should
+  be Wayland-only.
+- `tag +<name>`, `tag -<name>`, and `tag <name>` add, remove, and toggle a
+  compositor-owned window tag. Unlike Sway marks, the same tag may belong to
+  multiple windows.
+- Tags are owned by `struct sway_container`, so they remain attached through
+  workspace/output moves and floating or fullscreen transitions. The list must
+  be freed with the container.
+- The `tag` criterion matches every compositor-owned tag on both Wayland and
+  Xwayland views. For upstream config compatibility, it also matches the
+  client-supplied xdg-shell toplevel tag. Use `xdg_tag` when only that
+  client-supplied value should match.
+- The existing IPC `tag` string remains the xdg-shell tag. The new IPC `tags`
+  array contains compositor-owned tags, and add/remove operations emit a
+  window event with change `tag`.
+- A successful tag change calls `view_execute_criteria()`. This allows an
+  application/class rule that adds a tag to trigger later tag-based
+  `for_window` rules immediately. Put tag assignment rules before rules that
+  consume the tag.
+- `for_window` retains normal Sway one-shot semantics; these are not Hyprland's
+  continuously re-evaluated dynamic tags. Multiple effects for one tag can be
+  compacted with a comma, for example:
+  `for_window [tag="^game$"] move container to workspace number 3, immediate yes`.
+- Pure tag modifier parsing lives in `include/sway/tree/tag.h`; the command is
+  implemented in `sway/commands/tag.c`.
+- `swaymsg clients` is shorthand for the custom `GET_CLIENTS` IPC request
+  (`swaymsg -t get_clients`). Its concise output reports the unified `class`,
+  raw `app_id` and `xwayland_class`, placement, state, and tags without making
+  users traverse `GET_TREE`. Raw JSON remains available with `-r`.
 
 ### Realtime compositor scheduling
 
@@ -191,8 +226,11 @@ to `https://github.com/swaywm/sway.git`. The fork's default branch and
   transitions between special sizes, and restoration.
 - `tests/pointer_motion.c` covers accelerated, forced-unaccelerated, and
   non-pointer delta selection.
-- `tests/meson.build` registers them as `dwindle`, `dynamic-resize`, and
-  `pointer-motion`.
+- `tests/tag.c` covers add, remove, toggle, and invalid tag modifier parsing.
+- `tests/window_class.c` covers native Wayland, Xwayland, and missing unified
+  class resolution.
+- `tests/meson.build` registers them as `dwindle`, `dynamic-resize`,
+  `pointer-motion`, `tag`, and `window-class`.
 
 ## Implementation guidelines
 
@@ -218,6 +256,10 @@ to `https://github.com/swaywm/sway.git`. The fork's default branch and
   `meson test -C build dynamic-resize --print-errorlogs`.
 - Run the pointer delta test with
   `meson test -C build pointer-motion --print-errorlogs`.
+- Run the tag parser test with
+  `meson test -C build tag --print-errorlogs`.
+- Run the unified class test with
+  `meson test -C build window-class --print-errorlogs`.
 - Run the full relevant suite with
   `meson test -C build --print-errorlogs`.
 - Run `git diff --check`.
@@ -295,17 +337,20 @@ dynamic_resize [app_id="^org[.]gnome[.]Nautilus$"] 975 615
 dynamic_resize [class="^discord$"] 1200 900
 ```
 
-- The Hyprland game match is applied to both Wayland and Xwayland views:
+- The Hyprland game match tags both Wayland and Xwayland views. The following
+  tag-based rule applies the immediate/tearing override:
 
 ```
-for_window [app_id="(org.vinegarhq.Sober|explorer.exe|steam_.*|cs2|Minecraft.*|Lunar.*)$"] immediate yes
-for_window [class="(org.vinegarhq.Sober|explorer.exe|steam_.*|cs2|Minecraft.*|Lunar.*)$"] immediate yes
+for_window [class="(org.vinegarhq.Sober|explorer.exe|steam_.*|Minecraft.*|Lunar.*)$"] tag +game
+for_window [tag="^game$"] move container to workspace number 3, immediate yes, fullscreen
 ```
 
-- Ghostty, Helium, and Nautilus are native Wayland applications matched with
-  `app_id`. Discord is currently matched as an Xwayland application with
-  `class`. Confirm live identifiers with `swaymsg -t get_tree` before changing
-  criteria.
+- Workspace 3 is mapped to DP-2. The tag-based compound rule moves games there
+  without changing the visible workspace, permits immediate page flips, and
+  makes the view fullscreen.
+- Ghostty, Helium, and Nautilus are native Wayland applications. Discord is
+  currently an Xwayland application. Confirm live identifiers with
+  `swaymsg clients` before changing criteria.
 
 ## Repository layout
 
@@ -313,6 +358,10 @@ for_window [class="(org.vinegarhq.Sober|explorer.exe|steam_.*|cs2|Minecraft.*|Lu
 - Pure dwindle helpers: `include/sway/tree/dwindle.h`
 - Dynamic resize state helper: `include/sway/tree/dynamic_resize.h`
 - Dynamic resize command parser: `sway/commands/dynamic_resize.c`
+- Pure tag modifier parser: `include/sway/tree/tag.h`
+- Window tag command: `sway/commands/tag.c`
+- Unified window class helper: `include/sway/tree/window_class.h`
+- Focused client IPC serialization: `sway/ipc-json.c`
 - Unaccelerated pointer helper: `include/sway/input/pointer.h`
 - Relative pointer event handling: `sway/input/cursor.c`
 - Immediate/tearing view command: `sway/commands/allow_tearing.c`

@@ -905,6 +905,17 @@ The default colors are:
 	Any mark that starts with an underscore will not be drawn even if
 	*show_marks* is yes. The default is _yes_.
 
+*tag* +<identifier>|-<identifier>|<identifier>
+	Adds, removes, or toggles a tag on the current window. Unlike marks, the
+	same tag may be assigned to multiple windows. Tags can be matched with the
+	_tag_ criteria and are included in the IPC tree's _tags_ array.
+
+	This command uses Hyprland-style tag modifiers: a leading _+_ adds the
+	tag, a leading _-_ removes it, and no prefix toggles it. For example:
+
+		for_window [class="^game$"] tag +game
+		for_window [tag="^game$"] immediate yes
+
 *tiling_drag*  enable|disable|toggle
 	Sets whether or not tiling containers can be dragged with the mouse. If
 	_enabled_ (default), the _floating_mod_ can be used to drag tiling, as well
@@ -1056,10 +1067,11 @@ The following attributes may be matched with:
 	focused window. _app_id_ are specific to Wayland applications.
 
 *class*
-	Compare value against the window class. Can be a regular expression. If
-	value is \_\_focused\_\_, then the window class must be the same as that of
-	the currently focused window. _class_ are specific to X11 applications and
-	require XWayland.
+	Compare value against the Hyprland-style window class: the X11 class for
+	Xwayland applications, or the app id for native Wayland applications. Can
+	be a regular expression. If value is \_\_focused\_\_, then the class must
+	be the same as that of the currently focused window. Use _app_id_ when a
+	rule should match only native Wayland applications.
 
 *con_id*
 	Compare against the internal container ID, which you can find via IPC. If
@@ -1091,7 +1103,13 @@ The following attributes may be matched with:
 	must be the same as that of the currently focused window.
 
 *tag*
-	Compare value against the tag. _tag_ is specific to Wayland applications.
+	Compare value against any compositor-assigned window tag. Can be a regular
+	expression. For compatibility, this also compares against the xdg-shell
+	toplevel tag when present.
+
+*xdg_tag*
+	Compare value against the client-supplied xdg-shell toplevel tag. Can be a
+	regular expression. _xdg_tag_ is specific to Wayland applications.
 
 *tiling*
 	Matches tiling windows.

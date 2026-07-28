@@ -609,6 +609,12 @@ static void ipc_get_marks_callback(struct sway_container *con, void *data) {
 	}
 }
 
+static void ipc_get_clients_callback(struct sway_container *con, void *data) {
+	if (con->view) {
+		json_object_array_add(data, ipc_json_describe_client(con));
+	}
+}
+
 void ipc_client_handle_command(struct ipc_client *client, uint32_t payload_length,
 		enum ipc_command_type payload_type) {
 	if (!sway_assert(client != NULL, "client != NULL")) {
@@ -818,6 +824,17 @@ void ipc_client_handle_command(struct ipc_client *client, uint32_t payload_lengt
 		ipc_send_reply(client, payload_type, json_string,
 			(uint32_t)strlen(json_string));
 		json_object_put(tree);
+		goto exit_cleanup;
+	}
+
+	case IPC_GET_CLIENTS:
+	{
+		json_object *clients = json_object_new_array();
+		root_for_each_container(ipc_get_clients_callback, clients);
+		const char *json_string = json_object_to_json_string(clients);
+		ipc_send_reply(client, payload_type, json_string,
+			(uint32_t)strlen(json_string));
+		json_object_put(clients);
 		goto exit_cleanup;
 	}
 

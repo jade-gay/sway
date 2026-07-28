@@ -21,3 +21,19 @@ pointer_motion_test = executable(
 )
 
 test('pointer-motion', pointer_motion_test)
+
+tag_test = executable(
+	'test-tag',
+	'tag.c',
+	include_directories: sway_inc,
+)
+
+test('tag', tag_test)
+
+window_class_test = executable(
+	'test-window-class',
+	'window_class.c',
+	include_directories: sway_inc,
+)
+
+test('window-class', window_class_test)

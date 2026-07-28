@@ -84,6 +84,9 @@ supported. *For all replies, any properties not listed are subject to removal.*
 |- 101
 :  GET_SEATS
 :  Get the list of seats
+|- 102
+:  GET_CLIENTS
+:  Get a focused list of open windows and their rule identifiers
 
 ## 0. RUN_COMMAND
 
@@ -423,6 +426,9 @@ node and will have the following properties:
 :  string
 :  (Only windows) For an xdg-shell window, tag of the toplevel, if set.
    Otherwise, _null_
+|- tags
+:  array
+:  (Only windows) Compositor-assigned tags on the window
 |- window
 :  integer
 :  (Only xwayland windows) The X11 window ID for the xwayland window
@@ -1470,6 +1476,66 @@ one seat. Each object has the following properties:
 ]
 ```
 
+## 102. GET_CLIENTS
+
+*MESSAGE*++
+Retrieve a focused JSON representation of all open windows.
+
+*REPLY*++
+An array containing one object per open window:
+
+[- *PROPERTY*
+:- *DATA TYPE*
+:- *DESCRIPTION*
+|- id
+:  integer
+:  Internal container ID
+|- title
+:  string
+:  Window title, or _null_
+|- class
+:  string
+:  Unified rule class: X11 class for Xwayland, app id for native Wayland
+|- app_id
+:  string
+:  Native Wayland app id, or _null_
+|- xwayland_class
+:  string
+:  Raw X11 window class, or _null_
+|- instance
+:  string
+:  Raw X11 window instance, or _null_
+|- shell
+:  string
+:  _xdg_shell_ or _xwayland_
+|- pid
+:  integer
+:  Process ID
+|- workspace
+:  string
+:  Workspace name, or _null_ for a hidden scratchpad window
+|- output
+:  string
+:  Output name, or _null_
+|- focused
+:  boolean
+:  Whether the window is focused by the default seat
+|- floating
+:  boolean
+:  Whether the window is floating
+|- fullscreen
+:  boolean
+:  Whether the window is fullscreen
+|- visible
+:  boolean
+:  Whether the window is currently visible
+|- tags
+:  array
+:  Compositor-assigned window tags
+|- xdg_tag
+:  string
+:  Client-supplied xdg-shell toplevel tag, or _null_
+
 # EVENTS
 
 Events are a way for clients to get notified of changes to sway. A client can
@@ -1682,6 +1748,8 @@ The following change types are currently available:
 :  The window's urgency hint has changed status
 |- mark
 :  A mark has been added or removed from the window
+|- tag
+:  A compositor-assigned tag has been added or removed from the window
 
 
 *Example Event:*

@@ -35,6 +35,7 @@
 #include "sway/tree/arrange.h"
 #include "sway/tree/container.h"
 #include "sway/tree/view.h"
+#include "sway/tree/window_class.h"
 #include "sway/tree/workspace.h"
 #include "sway/config.h"
 #include "sway/xdg_decoration.h"
@@ -176,6 +177,10 @@ const char *view_get_class(struct sway_view *view) {
 		return view->impl->get_string_prop(view, VIEW_PROP_CLASS);
 	}
 	return NULL;
+}
+
+const char *view_get_window_class(struct sway_view *view) {
+	return window_class_resolve(view_get_app_id(view), view_get_class(view));
 }
 
 const char *view_get_instance(struct sway_view *view) {

@@ -19,6 +19,7 @@ types=(
 'get_inputs'
 'get_outputs'
 'get_tree'
+'get_clients'
 'get_marks'
 'get_bar_config'
 'get_version'

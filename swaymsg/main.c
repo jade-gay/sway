@@ -179,6 +179,68 @@ static void pretty_print_seat(json_object *i) {
 	printf("\n");
 }
 
+static const char *json_string_field(json_object *object, const char *key) {
+	json_object *value;
+	if (!json_object_object_get_ex(object, key, &value) ||
+			json_object_is_type(value, json_type_null)) {
+		return NULL;
+	}
+	return json_object_get_string(value);
+}
+
+static void pretty_print_client(json_object *client) {
+	json_object *id, *pid, *focused, *floating, *fullscreen, *visible, *tags;
+	json_object_object_get_ex(client, "id", &id);
+	json_object_object_get_ex(client, "pid", &pid);
+	json_object_object_get_ex(client, "focused", &focused);
+	json_object_object_get_ex(client, "floating", &floating);
+	json_object_object_get_ex(client, "fullscreen", &fullscreen);
+	json_object_object_get_ex(client, "visible", &visible);
+	json_object_object_get_ex(client, "tags", &tags);
+
+	const char *title = json_string_field(client, "title");
+	const char *class = json_string_field(client, "class");
+	const char *app_id = json_string_field(client, "app_id");
+	const char *xwayland_class =
+		json_string_field(client, "xwayland_class");
+	const char *instance = json_string_field(client, "instance");
+	const char *shell = json_string_field(client, "shell");
+	const char *workspace = json_string_field(client, "workspace");
+	const char *output = json_string_field(client, "output");
+	const char *xdg_tag = json_string_field(client, "xdg_tag");
+
+	printf("Window 0x%llx -> %s%s\n",
+			(unsigned long long)json_object_get_int64(id),
+			title ? title : "(untitled)",
+			json_object_get_boolean(focused) ? " (focused)" : "");
+	printf("  class: %s\n", class ? class : "(null)");
+	printf("  app_id: %s\n", app_id ? app_id : "(null)");
+	printf("  xwayland_class: %s\n",
+			xwayland_class ? xwayland_class : "(null)");
+	printf("  instance: %s\n", instance ? instance : "(null)");
+	printf("  shell: %s\n", shell ? shell : "(null)");
+	printf("  pid: %d\n", json_object_get_int(pid));
+	printf("  workspace: %s\n", workspace ? workspace : "(none)");
+	printf("  output: %s\n", output ? output : "(none)");
+	printf("  floating: %s\n",
+			json_object_get_boolean(floating) ? "yes" : "no");
+	printf("  fullscreen: %s\n",
+			json_object_get_boolean(fullscreen) ? "yes" : "no");
+	printf("  visible: %s\n",
+			json_object_get_boolean(visible) ? "yes" : "no");
+	printf("  tags: ");
+	size_t tags_len = json_object_array_length(tags);
+	if (!tags_len) {
+		printf("(none)");
+	}
+	for (size_t i = 0; i < tags_len; ++i) {
+		printf("%s%s", i ? ", " : "",
+				json_object_get_string(json_object_array_get_idx(tags, i)));
+	}
+	printf("\n");
+	printf("  xdg_tag: %s\n\n", xdg_tag ? xdg_tag : "(null)");
+}
+
 static void pretty_print_output(json_object *o) {
 	json_object *name, *rect, *focused, *active, *power, *ws, *current_mode, *non_desktop;
 	json_object_object_get_ex(o, "name", &name);
@@ -409,6 +471,7 @@ static void pretty_print(int type, json_object *resp) {
 	case IPC_GET_INPUTS:
 	case IPC_GET_OUTPUTS:
 	case IPC_GET_SEATS:
+	case IPC_GET_CLIENTS:
 		break;
 	default:
 		printf("%s\n", json_object_to_json_string_ext(resp,
@@ -435,6 +498,9 @@ static void pretty_print(int type, json_object *resp) {
 			break;
 		case IPC_GET_SEATS:
 			pretty_print_seat(obj);
+			break;
+		case IPC_GET_CLIENTS:
+			pretty_print_client(obj);
 			break;
 		}
 	}
@@ -511,7 +577,11 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (!cmdtype) {
+	if (!cmdtype && optind + 1 == argc &&
+			strcasecmp(argv[optind], "clients") == 0) {
+		cmdtype = strdup("get_clients");
+		++optind;
+	} else if (!cmdtype) {
 		cmdtype = strdup("command");
 	}
 	if (!socket_path) {
@@ -538,6 +608,9 @@ int main(int argc, char **argv) {
 		type = IPC_GET_OUTPUTS;
 	} else if (strcasecmp(cmdtype, "get_tree") == 0) {
 		type = IPC_GET_TREE;
+	} else if (strcasecmp(cmdtype, "get_clients") == 0 ||
+			strcasecmp(cmdtype, "clients") == 0) {
+		type = IPC_GET_CLIENTS;
 	} else if (strcasecmp(cmdtype, "get_marks") == 0) {
 		type = IPC_GET_MARKS;
 	} else if (strcasecmp(cmdtype, "get_bar_config") == 0) {

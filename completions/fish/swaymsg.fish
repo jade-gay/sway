@@ -14,6 +14,7 @@ complete -c swaymsg -s t -l type -fra 'get_workspaces' --description "Gets a JSO
 complete -c swaymsg -s t -l type -fra 'get_inputs' --description "Gets a JSON-encoded list of current inputs."
 complete -c swaymsg -s t -l type -fra 'get_outputs' --description "Gets a JSON-encoded list of current outputs."
 complete -c swaymsg -s t -l type -fra 'get_tree' --description "Gets a JSON-encoded layout tree of all open windows, containers, outputs, workspaces, and so on."
+complete -c swaymsg -s t -l type -fra 'get_clients' --description "Gets a focused list of open windows and their rule identifiers."
 complete -c swaymsg -s t -l type -fra 'get_marks' --description "Get a JSON-encoded list of marks."
 complete -c swaymsg -s t -l type -fra 'get_bar_config' --description "Get a JSON-encoded configuration for swaybar."
 complete -c swaymsg -s t -l type -fra 'get_version' --description "Get JSON-encoded version information for the running instance of sway."

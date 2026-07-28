@@ -65,6 +65,15 @@ _swaymsg_ [options...] [message]
 	  anything beyond that point as an option. For example, use
 	  _swaymsg -- mark --add test_ instead of _swaymsg mark --add test_.
 
+*clients*
+	Shorthand for *swaymsg -t get_clients*. Prints a focused list of open
+	windows and the identifiers used by window rules, similar to
+	*hyprctl clients*.
+
+*get\_clients*
+	Gets a list of open windows, including the unified _class_, raw _app_id_
+	and _xwayland_class_, workspace, output, state, and tags.
+
 *get\_workspaces*
 	Gets a list of workspaces and their status.
 

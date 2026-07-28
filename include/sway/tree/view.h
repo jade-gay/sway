@@ -225,6 +225,12 @@ const char *view_get_app_id(struct sway_view *view);
 
 const char *view_get_class(struct sway_view *view);
 
+/**
+ * Return the Hyprland-style class: Xwayland class for X11 views and app_id
+ * for native Wayland views.
+ */
+const char *view_get_window_class(struct sway_view *view);
+
 const char *view_get_instance(struct sway_view *view);
 
 uint32_t view_get_x11_window_id(struct sway_view *view);

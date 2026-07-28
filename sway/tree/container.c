@@ -117,6 +117,7 @@ struct sway_container *container_create(struct sway_view *view) {
 	c->view = view;
 	c->alpha = 1.0f;
 	c->marks = create_list();
+	c->tags = create_list();
 
 	wl_signal_init(&c->events.destroy);
 	wl_signal_emit_mutable(&root->events.new_node, &c->node);
@@ -463,6 +464,7 @@ void container_destroy(struct sway_container *con) {
 	list_free(con->current.children);
 
 	list_free_items_and_destroy(con->marks);
+	list_free_items_and_destroy(con->tags);
 
 	if (con->view && con->view->container == con) {
 		con->view->container = NULL;
@@ -1711,6 +1713,38 @@ bool container_has_mark(struct sway_container *con, char *mark) {
 void container_add_mark(struct sway_container *con, char *mark) {
 	list_add(con->marks, strdup(mark));
 	ipc_event_window(con, "mark");
+}
+
+bool container_has_tag(struct sway_container *con, const char *tag) {
+	for (int i = 0; i < con->tags->length; ++i) {
+		const char *item = con->tags->items[i];
+		if (strcmp(item, tag) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool container_add_tag(struct sway_container *con, const char *tag) {
+	if (container_has_tag(con, tag)) {
+		return false;
+	}
+	list_add(con->tags, strdup(tag));
+	ipc_event_window(con, "tag");
+	return true;
+}
+
+bool container_remove_tag(struct sway_container *con, const char *tag) {
+	for (int i = 0; i < con->tags->length; ++i) {
+		char *item = con->tags->items[i];
+		if (strcmp(item, tag) == 0) {
+			free(item);
+			list_del(con->tags, i);
+			ipc_event_window(con, "tag");
+			return true;
+		}
+	}
+	return false;
 }
 
 void container_raise_floating(struct sway_container *con) {
